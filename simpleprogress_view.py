@@ -128,6 +128,10 @@ def _human_td(seconds: float) -> str:
 
 def _render_tree(nodes: List[_TaskNode], indent: str = "") -> List[str]:
     lines: List[str] = []
+    # Add header
+    lines.append(f"{'Task':30} {'Progress':25} {'Iter':>10} {'Elapsed':>8} {'Status'}")
+    lines.append("-" * 83)
+
     for n in nodes:
         pct = None
         if n.total is not None and n.total > 0:

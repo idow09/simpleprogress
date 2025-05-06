@@ -37,9 +37,14 @@ def process_example(example: str, pipeline: DummyPipeline) -> float:
 
 
 def ingest(pipeline: DummyPipeline, documents: List[str], progress):
-    for doc in documents:
+    import concurrent.futures
+
+    def ingest_doc(doc):
         pipeline.ingest(doc)
         progress.update()
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        executor.map(ingest_doc, documents)
 
 
 def process_examples(pipeline: DummyPipeline, examples: List[str], progress) -> float:
@@ -67,8 +72,8 @@ def run_experiment(dataset: DummyDataset, config: Dict[str, Any], progress) -> f
 def main():
     # Setup dummy data
     datasets = [
+        DummyDataset("large", num_docs=200, num_examples=50),
         DummyDataset("small", num_docs=50, num_examples=30),
-        DummyDataset("large", num_docs=80, num_examples=50),
     ]
 
     configs = [

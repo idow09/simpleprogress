@@ -4,3 +4,4 @@
 - [ ] titles for live_view as like in summary
 - [ ] better CLI for simpleprogress_view.py (instead of the stupid scripts)
 - [ ] add a "program_end" event to simpleprogress.py atexit and inform the user in live_view
+- [ ] make the ingestion in example.py run in parallel
