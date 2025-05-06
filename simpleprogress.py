@@ -1,4 +1,4 @@
- """simpleprogress.py
+"""simpleprogress.py
 A dropin, zerodependency progresslogging helper.
 
 Usage example
@@ -47,7 +47,7 @@ ISO_FMT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
 def _utcnow() -> str:
     """Return current UTC time formatted for ISO8601 (always Zsuffixed)."""
-    return _dt.datetime.utcnow().strftime(ISO_FMT)
+    return _dt.now(_dt.UTC).strftime(ISO_FMT)
 
 
 class _Writer(threading.Thread):
@@ -107,7 +107,12 @@ class _Backend:
 class Progress:
     """Entrypoint object  similar spirit to ``logging.Logger``."""
 
-    def __init__(self, backend: _Backend, parent_id: Optional[str] = None, task_id: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        backend: _Backend,
+        parent_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+    ) -> None:
         self._backend = backend
         self._parent_id = parent_id
         self._task_id = task_id  # only real Task objects have this set
@@ -194,7 +199,12 @@ class _Task(Progress):
                 return
             status = "error" if exception else "done"
             elapsed = time.time() - self._start_ts
-            self._emit(status, n=self._count, dt=elapsed, error=str(exception) if exception else None)
+            self._emit(
+                status,
+                n=self._count,
+                dt=elapsed,
+                error=str(exception) if exception else None,
+            )
             # idempotency
             self._count = None
 
@@ -244,4 +254,3 @@ class _NullProgress(Progress):
 
     def close(self, *_, **__):  # noqa: D401
         pass
-
