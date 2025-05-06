@@ -131,6 +131,7 @@ class Progress:
             return _NullProgress()
         path = Path(file_path).expanduser().resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Progress enabled. Run `./splive {path}` to view live.")
         backend = _Backend(path)
         return cls(backend)
 

@@ -247,3 +247,26 @@ def summary(progress_path: os.PathLike | str) -> None:
     print(hdr)
     for name, cnt, dur, avg in rows:
         print(f"{name:{col1}}  {cnt:8d}  {_human_td(dur):>8}  {_human_td(avg):>8}")
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python simpleprogress_view.py [live|summary] <path>")
+        sys.exit(1)
+
+    command = sys.argv[1]
+    path = sys.argv[2] if len(sys.argv) > 2 else None
+
+    if not path:
+        print("Error: path is required")
+        sys.exit(1)
+
+    if command == "live":
+        live_view(path)
+    elif command == "summary":
+        summary(path)
+    else:
+        print(f"Unknown command: {command}")
+        sys.exit(1)
