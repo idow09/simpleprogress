@@ -1,0 +1,2 @@
+- [ ] cli interface for simpleprogress_view.py
+- [ ] indentation for children in simpleprogress_view.py
