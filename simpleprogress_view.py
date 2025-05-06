@@ -40,7 +40,7 @@ class _TaskNode:
     __slots__ = (
         "id",
         "name",
-        "parent",
+        "parent_id",
         "total",
         "count",
         "start_ts",
@@ -49,10 +49,10 @@ class _TaskNode:
         "children",
     )
 
-    def __init__(self, id_: str, name: str, parent: Optional[str]):
+    def __init__(self, id_: str, name: str, parent_id: Optional[str]):
         self.id = id_
         self.name = name or id_
-        self.parent = parent
+        self.parent_id = parent_id
         self.total: Optional[int] = None
         self.count: int = 0
         self.start_ts: Optional[float] = None
@@ -90,14 +90,14 @@ def _update_tree(
     tid = evt["id"]
     t = tasks.get(tid)
     if t is None:
-        t = _TaskNode(tid, evt.get("name", tid), evt.get("parent"))
+        t = _TaskNode(tid, evt.get("name", tid), evt.get("parent_id"))
         tasks[tid] = t
-        if t.parent is None:
+        if t.parent_id is None:
             roots.append(t)
         else:
-            parent = tasks.get(t.parent)
-            if parent:
-                parent.children.append(t)
+            parent_id = tasks.get(t.parent_id)
+            if parent_id:
+                parent_id.children.append(t)
 
     event = evt["event"]
     ts_iso = evt["ts"].replace("Z", "+00:00")
@@ -127,13 +127,15 @@ def _human_td(seconds: float) -> str:
     return f"{m:02d}:{s:02d}.{ms:03d}"
 
 
-def _render_tree(nodes: List[_TaskNode], indent: str = "") -> List[str]:
+def _render_tree(
+    nodes: List[_TaskNode], indent: str = "", show_tree: bool = True
+) -> List[str]:
     lines: List[str] = []
     # Add header
     lines.append(f"{'Task':30} {'Progress':25} {'Iter':>10} {'Elapsed':>8} {'Status'}")
     lines.append("-" * 83)
 
-    for n in nodes:
+    for i, n in enumerate(nodes):
         pct = None
         if n.total is not None and n.total > 0:
             pct = n.count / n.total
@@ -149,10 +151,23 @@ def _render_tree(nodes: List[_TaskNode], indent: str = "") -> List[str]:
             status = "…"
         dur = _human_td(n.duration() or 0.0)
         cnt = f"{n.count}" + (f"/{n.total}" if n.total else "")
-        line = f"{indent}{n.name:30} {bar:25} {cnt:>10} {dur:>8} {status}"
+
+        # Tree characters
+        is_last = i == len(nodes) - 1
+        prefix = ""
+        if show_tree:
+            if indent:  # Not a root node
+                prefix = "└─ " if is_last else "├─ "
+
+        line = f"{indent}{prefix}{n.name:30} {bar:25} {cnt:>10} {dur:>8} {status}"
         lines.append(line.rstrip())
+
         if n.children:
-            lines.extend(_render_tree(n.children, indent + "  "))
+            # For children, use vertical line if not last node
+            child_indent = (
+                indent + ("    " if is_last else "│   ") if show_tree else indent + "  "
+            )
+            lines.extend(_render_tree(n.children, child_indent, show_tree))
     return lines
 
 
@@ -161,7 +176,9 @@ def _render_tree(nodes: List[_TaskNode], indent: str = "") -> List[str]:
 # -----------------------------------------------------------------------------
 
 
-def live_view(progress_path: os.PathLike | str, refresh: float = 0.5) -> None:
+def live_view(
+    progress_path: os.PathLike | str, refresh: float = 0.5, show_tree: bool = True
+) -> None:
     """Live terminal view for an active *simpleprogress* run.
 
     Parameters
@@ -171,6 +188,8 @@ def live_view(progress_path: os.PathLike | str, refresh: float = 0.5) -> None:
     refresh
         How often to poll the file (seconds).  Press Ctrl‑C or *q* then Enter
         to quit.
+    show_tree
+        Whether to show tree-like indentation for child tasks.
     """
     path = Path(progress_path).expanduser()
     if not path.exists():
@@ -191,7 +210,7 @@ def live_view(progress_path: os.PathLike | str, refresh: float = 0.5) -> None:
                         _update_tree(evt, tasks, roots)
 
                 # render
-                lines = _render_tree(roots)
+                lines = _render_tree(roots, show_tree=show_tree)
                 sys.stdout.write("\033[2J\033[H")  # clear + home
                 sys.stdout.write("\n".join(lines) + "\n")
                 sys.stdout.flush()
@@ -211,8 +230,15 @@ def live_view(progress_path: os.PathLike | str, refresh: float = 0.5) -> None:
             return
 
 
-def summary(progress_path: os.PathLike | str) -> None:
+def summary(progress_path: os.PathLike | str, show_tree: bool = True) -> None:
     """Print a post‑run summary table.
+
+    Parameters
+    ----------
+    progress_path
+        Path to the progress file.
+    show_tree
+        Whether to show tree-like indentation for child tasks.
 
     Columns: *task*, *total iterations*, *elapsed*, *avg/iter*.
     """
@@ -232,17 +258,29 @@ def summary(progress_path: os.PathLike | str) -> None:
     # Gather rows
     rows: List[Tuple[str, int, float, float]] = []
 
-    def collect(node: _TaskNode, prefix: str = ""):
+    def collect(node: _TaskNode, prefix: str = "", is_last: bool = True):
         if node.duration() is None:
             return
         dur = node.duration() or 0.0
         avg = dur / node.count if node.count else 0.0
-        rows.append((prefix + node.name, node.count, dur, avg))
-        for child in node.children:
-            collect(child, prefix + "  ")
 
-    for root in roots:
-        collect(root)
+        # Tree characters
+        tree_prefix = ""
+        if show_tree and prefix:  # Not a root node
+            tree_prefix = "└─ " if is_last else "├─ "
+
+        rows.append((prefix + tree_prefix + node.name, node.count, dur, avg))
+
+        # Process children
+        for i, child in enumerate(node.children):
+            is_child_last = i == len(node.children) - 1
+            child_prefix = (
+                prefix + ("    " if is_last else "│   ") if show_tree else prefix + "  "
+            )
+            collect(child, child_prefix, is_child_last)
+
+    for i, root in enumerate(roots):
+        collect(root, is_last=(i == len(roots) - 1))
 
     # widths
     col1 = max(len(r[0]) for r in rows) if rows else 4
