@@ -47,7 +47,7 @@ ISO_FMT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
 def _utcnow() -> str:
     """Return current UTC time formatted for ISO8601 (always Zsuffixed)."""
-    return _dt.now(_dt.UTC).strftime(ISO_FMT)
+    return _dt.datetime.now(_dt.UTC).strftime(ISO_FMT)
 
 
 class _Writer(threading.Thread):
@@ -155,10 +155,10 @@ class _Task(Progress):
         super().__init__(backend, parent_id)
         self._name = name
         self._total = total
-        self._task_id = uuid.uuid4().hex  # unique across process
+        self._task_id = uuid.uuid4().hex[:8]  # unique across process, shorter hash
         self._count = 0
         self._start_ts = time.time()
-        self._emit("start", total=total, name=name, parent_id=parent_id)
+        self._emit("start", total=total, name=name)
         self._lock = threading.Lock()
 
     # ----------------------- context management --------------------
@@ -216,7 +216,7 @@ class _Task(Progress):
             "id": self._task_id,
         }
         if self._parent_id is not None:
-            payload["parent"] = self._parent_id
+            payload["parent_id"] = self._parent_id
         payload.update(extra)
         self._backend.emit(payload)
 
