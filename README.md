@@ -1,7 +1,9 @@
-- [ ] cli interface for simpleprogress_view.py
+- [xv] cli interface for simpleprogress_view.py
 - [ ] indentation for children in simpleprogress_view.py
-- [ ] duration format should be hh:mm:ss.ms
-- [ ] titles for live_view as like in summary
+- [x] duration format should be hh:mm:ss.ms
+- [x] titles for live_view as like in summary
 - [ ] better CLI for simpleprogress_view.py (instead of the stupid scripts)
 - [ ] add a "program_end" event to simpleprogress.py atexit and inform the user in live_view
-- [ ] make the ingestion in example.py run in parallel
+    - [ ] Is this even needed? it works out of the box bc tasks are marked "error" in case we exit early
+- [x] make the ingestion in example.py run in parallel
+- [ ] report errors in summary

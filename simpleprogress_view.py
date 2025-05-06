@@ -119,11 +119,12 @@ def _update_tree(
 
 
 def _human_td(seconds: float) -> str:
+    ms = int((seconds % 1) * 1000)
     secs = int(seconds)
     h, m, s = secs // 3600, (secs % 3600) // 60, secs % 60
     if h:
-        return f"{h:d}:{m:02d}:{s:02d}"
-    return f"{m:02d}:{s:02d}"
+        return f"{h:d}:{m:02d}:{s:02d}.{ms:03d}"
+    return f"{m:02d}:{s:02d}.{ms:03d}"
 
 
 def _render_tree(nodes: List[_TaskNode], indent: str = "") -> List[str]:
@@ -250,7 +251,10 @@ def summary(progress_path: os.PathLike | str) -> None:
     )
     print(hdr)
     for name, cnt, dur, avg in rows:
-        print(f"{name:{col1}}  {cnt:8d}  {_human_td(dur):>8}  {_human_td(avg):>8}")
+        if cnt == 0:
+            print(f"{name:{col1}}  {'':8}  {_human_td(dur):>8}  {'':8}")
+        else:
+            print(f"{name:{col1}}  {cnt:8d}  {_human_td(dur):>8}  {_human_td(avg):>8}")
 
 
 if __name__ == "__main__":
