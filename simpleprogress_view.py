@@ -127,14 +127,28 @@ def _human_td(seconds: float) -> str:
     return f"{m:02d}:{s:02d}.{ms:03d}"
 
 
+def _get_header(task_width: int) -> str:
+    return (
+        f"{'Task':{max(task_width, 50)}} {'Progress':25} {'Iter':>10} {'Elapsed':>8} {'Status'}\n"
+        + "-" * (max(task_width, 50) + 48)
+    )
+
+
 def _render_tree(
     nodes: List[_TaskNode], indent: str = "", show_tree: bool = True
 ) -> List[str]:
-    lines: List[str] = []
-    # Add header
-    lines.append(f"{'Task':30} {'Progress':25} {'Iter':>10} {'Elapsed':>8} {'Status'}")
-    lines.append("-" * 83)
+    # First pass: calculate max task name width
+    def get_max_width(nodes: List[_TaskNode], current_max: int = 0) -> int:
+        for n in nodes:
+            name_len = len(indent + n.name)
+            current_max = max(current_max, name_len)
+            if n.children:
+                current_max = max(current_max, get_max_width(n.children, current_max))
+        return current_max
 
+    task_width = max(get_max_width(nodes), 50)  # minimum width of 50
+
+    lines: List[str] = []
     for i, n in enumerate(nodes):
         pct = None
         if n.total is not None and n.total > 0:
@@ -159,7 +173,8 @@ def _render_tree(
             if indent:  # Not a root node
                 prefix = "└─ " if is_last else "├─ "
 
-        line = f"{indent}{prefix}{n.name:30} {bar:25} {cnt:>10} {dur:>8} {status}"
+        name = f"{indent}{prefix}{n.name}"
+        line = f"{name:{task_width}} {bar:25} {cnt:>10} {dur:>8} {status}"
         lines.append(line.rstrip())
 
         if n.children:
@@ -210,9 +225,12 @@ def live_view(
                         _update_tree(evt, tasks, roots)
 
                 # render
-                lines = _render_tree(roots, show_tree=show_tree)
+                tree_lines = _render_tree(roots, show_tree=show_tree)
+                header = _get_header(
+                    len(tree_lines[0].split()[0]) if tree_lines else 30
+                )
                 sys.stdout.write("\033[2J\033[H")  # clear + home
-                sys.stdout.write("\n".join(lines) + "\n")
+                sys.stdout.write(header + "\n" + "\n".join(tree_lines) + "\n")
                 sys.stdout.flush()
 
                 # exit if all top‑level tasks finished
