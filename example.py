@@ -1,44 +1,32 @@
 import time
-import random
 from simpleprogress import Progress
 from datetime import datetime
 from typing import List, Dict, Any
+import concurrent.futures
 
 
-class DummyDataset:
+class Dataset:
     def __init__(self, name: str, num_docs: int, num_examples: int):
         self.name = name
         self.documents = [f"doc_{i}" for i in range(num_docs)]
         self.examples = [f"example_{i}" for i in range(num_examples)]
 
 
-class DummyPipeline:
+class Pipeline:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.ingested_docs = set()
 
     def ingest(self, doc: str):
-        time.sleep(0.1)
+        time.sleep(0.2)
         self.ingested_docs.add(doc)
 
     def retrieve(self, query: str) -> str:
-        time.sleep(0.2)
+        time.sleep(0.1)
         return f"result_for_{query}"
 
 
-def calculate_accuracy(output: str, expected: str) -> float:
-    time.sleep(0.05)
-    return random.uniform(0.7, 0.95)
-
-
-def process_example(example: str, pipeline: DummyPipeline) -> float:
-    output = pipeline.retrieve(example)
-    return calculate_accuracy(output, example)
-
-
-def ingest(pipeline: DummyPipeline, documents: List[str], progress):
-    import concurrent.futures
-
+def ingest(pipeline: Pipeline, documents: List[str], progress):
     def ingest_doc(doc):
         pipeline.ingest(doc)
         progress.update()
@@ -47,41 +35,29 @@ def ingest(pipeline: DummyPipeline, documents: List[str], progress):
         executor.map(ingest_doc, documents)
 
 
-def process_examples(pipeline: DummyPipeline, examples: List[str], progress) -> float:
-    accuracies = []
+def process_examples(pipeline: Pipeline, examples: List[str], progress) -> List[str]:
+    results = []
     for example in examples:
-        accuracy = process_example(example, pipeline)
-        accuracies.append(accuracy)
+        result = pipeline.retrieve(example)
+        results.append(result)
         progress.update()
-    return sum(accuracies) / len(accuracies)
+    return results
 
 
-def run_experiment(dataset: DummyDataset, config: Dict[str, Any], progress) -> float:
+def run_experiment(dataset: Dataset, config: Dict[str, Any], progress) -> float:
     with progress.child(f"experiment {dataset.name} - {config['name']}") as exp:
-        pipeline = DummyPipeline(config)
+        pipeline = Pipeline(config)
 
         with exp.child("ingestion", total=len(dataset.documents)) as ingest_progress:
             ingest(pipeline, dataset.documents, ingest_progress)
 
         with exp.child("evaluation", total=len(dataset.examples)) as eval_progress:
-            avg_accuracy = process_examples(pipeline, dataset.examples, eval_progress)
+            results = process_examples(pipeline, dataset.examples, eval_progress)
 
-        return avg_accuracy
+        return results
 
 
-def main():
-    # Setup dummy data
-    datasets = [
-        DummyDataset("large", num_docs=200, num_examples=50),
-        DummyDataset("small", num_docs=50, num_examples=30),
-    ]
-
-    configs = [
-        {"name": "config_a", "param1": 1, "param2": "value1"},
-        {"name": "config_b", "param1": 2, "param2": "value2"},
-    ]
-
-    # Setup progress tracking
+def run_grid(datasets: List[Dataset], configs: List[Dict[str, Any]]):
     prg_path = f"logs/run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.progress.jsonl"
     prg = Progress.open(prg_path)
 
@@ -89,9 +65,24 @@ def main():
     with prg.task("experiments", total=len(datasets) * len(configs)) as exps:
         for dataset in datasets:
             for config in configs:
-                avg_accuracy = run_experiment(dataset, config, exps)
-                results[(dataset.name, config["name"])] = avg_accuracy
+                result = run_experiment(dataset, config, exps)
+                results[(dataset.name, config["name"])] = result
                 exps.update()
+    return results
+
+
+def main():
+    datasets = [
+        Dataset("large_ds", num_docs=200, num_examples=50),
+        Dataset("small_ds", num_docs=50, num_examples=30),
+    ]
+
+    configs = [
+        {"name": "config_a", "param1": 1, "param2": "value1"},
+        {"name": "config_b", "param1": 2, "param2": "value2"},
+    ]
+
+    results = run_grid(datasets, configs)
 
     # Print results
     print("\nResults:")
