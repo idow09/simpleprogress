@@ -3,13 +3,13 @@
 <!-- Badges -->
 <p align="center">
   <a href="https://github.com/idow09/simpleprogress/blob/main/LICENSE">
-    <img alt="License" src="https://img.shields.io/github/license/idow09/simpleprogress?style=for-the-badge&label=license&message=MIT">
+    <img alt="License" src="https://img.shields.io/github/license/idow09/simpleprogress?label=license&message=MIT">
   </a>
-  <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen?style=for-the-badge">
+  <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen">
   <a href="https://github.com/astral-sh/ruff">
-    <img alt="Code style: Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json&style=for-the-badge">
+    <img alt="Code style: Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json">
   </a>
-  <img alt="Python Version" src="https://img.shields.io/badge/python-3.8+-blue?style=for-the-badge">
+  <img alt="Python Version" src="https://img.shields.io/badge/python-3.8+-blue">
 </p>
 
 <p align="center">
