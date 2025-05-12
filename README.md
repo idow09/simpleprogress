@@ -1,16 +1,9 @@
 # simpleprogress
 
-<!-- Badges -->
-<p align="center">
-  <a href="https://github.com/idow09/simpleprogress/blob/main/LICENSE">
-    <img alt="License" src="https://img.shields.io/github/license/idow09/simpleprogress?label=license&message=MIT">
-  </a>
-  <img alt="Dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen">
-  <a href="https://github.com/astral-sh/ruff">
-    <img alt="Code style: Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json">
-  </a>
-  <img alt="Python Version" src="https://img.shields.io/badge/python-3.8+-blue">
-</p>
+[![License](https://img.shields.io/github/license/idow09/simpleprogress?label=license&message=MIT)](https://github.com/idow09/simpleprogress/blob/main/LICENSE)
+[![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://github.com/idow09/simpleprogress)
+[![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Python Version](https://img.shields.io/badge/python-3.10+-blue)](https://www.python.org/)
 
 <p align="center">
   <i>✨ A drop-in, zero-dependency progress logging helper for Python ✨</i>
