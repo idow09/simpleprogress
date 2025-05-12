@@ -83,12 +83,9 @@ def main():
         {"name": "config_b", "param1": 2, "param2": "value2"},
     ]
 
-    results = run_grid(datasets, configs)
+    run_grid(datasets, configs)
 
-    # Print results
-    print("\nResults:")
-    for (dataset, config), accuracy in results.items():
-        print(f"{dataset} - {config}: {accuracy:.2%}")
+    print("Done")
 
 
 if __name__ == "__main__":

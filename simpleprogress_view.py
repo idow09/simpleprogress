@@ -269,20 +269,6 @@ def live_view(
                             _update_tree(evt, tasks, roots)
                     last_file_size = fp.tell()
                     last_mod_time = current_mod_time
-                else:
-                    # If no change, still check for exit condition
-                    if roots and all(r.status in {"done", "error"} for r in roots):
-                        # Final render before exit
-                        pass  # Render happens below anyway
-                    else:  # No changes and not finished
-                        # check for quit command without blocking file reads
-                        if sys.stdin in select.select([sys.stdin], [], [], 0.0)[0]:
-                            ch = sys.stdin.readline().strip().lower()
-                            if ch in {"q", "quit", "exit"}:
-                                return
-                        time.sleep(refresh)
-                        continue  # Skip rendering if no change and not finished
-
                 # render
                 tree_lines, task_width = _render_tree(roots, show_tree=show_tree)
                 header = _get_header(task_width)
