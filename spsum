@@ -1,9 +1,0 @@
-#!/usr/bin/env python3
-import sys
-from simpleprogress_view import summary
-
-if len(sys.argv) != 2:
-    print("Usage: spsum <path>")
-    sys.exit(1)
-
-summary(sys.argv[1])

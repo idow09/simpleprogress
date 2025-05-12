@@ -1,9 +1,0 @@
-#!/usr/bin/env python3
-import sys
-from simpleprogress_view import live_view
-
-if len(sys.argv) != 2:
-    print("Usage: splive <path>")
-    sys.exit(1)
-
-live_view(sys.argv[1])
