@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import math
 import os
 import select
 import sys
@@ -118,17 +119,49 @@ def _update_tree(
 # -----------------------------------------------------------------------------
 
 
-def _human_td(seconds: float) -> str:
+def format_time_adaptive(seconds: Optional[float]) -> str:
+    """Formats time adaptively: ms, s.d, s, M:SS, H:MM:SS."""
+    if seconds is None or not math.isfinite(seconds):
+        return "???"  # Handle unknown/infinite/NaN ETA
     if seconds < 0:
-        return (
-            ""  # Handle cases where duration might be slightly negative due to timing
-        )
+        seconds = 0  # Don't show negative time, treat as zero
+
+    if seconds < 1:
+        # Milliseconds
+        return f"{seconds * 1000:.0f}ms"
+    elif seconds < 10:
+        # Seconds with one decimal place
+        return f"{seconds:.1f}s"
+    elif seconds < 60:
+        # Integer seconds
+        return f"{seconds:.0f}s"
+    elif seconds < 3600:
+        # MM:SS format
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes}:{secs:02d}"
+    else:
+        # HH:MM:SS format
+        hours = int(seconds // 3600)
+        remainder = seconds % 3600
+        minutes = int(remainder // 60)
+        secs = int(remainder % 60)
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+
+
+def _format_time_fixed_ms(seconds: Optional[float]) -> str:
+    """Formats time as H:MM:SS.ms or M:SS.ms."""
+    if seconds is None or not math.isfinite(seconds) or seconds < 0:
+        return "???"  # Simplified handling for invalid/negative
     ms = int((seconds % 1) * 1000)
     secs = int(seconds)
     h, m, s = secs // 3600, (secs % 3600) // 60, secs % 60
-    if h:
+    if h > 0:
         return f"{h:d}:{m:02d}:{s:02d}.{ms:03d}"
-    return f"{m:02d}:{s:02d}.{ms:03d}"
+    elif m > 0:
+        return f"{m:d}:{s:02d}.{ms:03d}"
+    else:
+        return f"{s:d}.{ms:03d}s"  # Adjusted slightly for < 1 min
 
 
 def _get_header(task_width: int) -> str:
@@ -139,7 +172,10 @@ def _get_header(task_width: int) -> str:
 
 
 def _render_tree(
-    nodes: List[_TaskNode], indent: str = "", show_tree: bool = True
+    nodes: List[_TaskNode],
+    indent: str = "",
+    show_tree: bool = True,
+    adaptive_time: bool = True,
 ) -> Tuple[List[str], int]:
     # List to store tuples of (name_str, bar, cnt_str, dur_str, avg_dur_str, status_char_val)
     # for all nodes in the current call's scope, in the correct order.
@@ -147,7 +183,10 @@ def _render_tree(
 
     # Inner helper function to recursively gather data and the maximum name length.
     def gather_data_recursive(
-        current_nodes: List[_TaskNode], current_indent: str, current_show_tree: bool
+        current_nodes: List[_TaskNode],
+        current_indent: str,
+        current_show_tree: bool,
+        use_adaptive_time: bool,
     ) -> int:  # Returns max_name_len for this level and below
         level_max_name_len = 0
         for i, n in enumerate(current_nodes):
@@ -181,8 +220,13 @@ def _render_tree(
             dur_val = n.duration() or 0.0
             avg_dur_val = dur_val / n.count if n.count > 0 else -1.0
             cnt_val = f"{n.count}" + (f"/{n.total}" if n.total is not None else "")
-            dur_str_val = _human_td(dur_val)
-            avg_dur_str_val = _human_td(avg_dur_val) if avg_dur_val >= 0 else ""
+
+            # Choose formatting function
+            time_formatter = (
+                format_time_adaptive if use_adaptive_time else _format_time_fixed_ms
+            )
+            dur_str_val = time_formatter(dur_val)
+            avg_dur_str_val = time_formatter(avg_dur_val) if n.count > 0 else "---"
 
             collected_data.append(
                 (name_str, bar, cnt_val, dur_str_val, avg_dur_str_val, status_char_val)
@@ -195,7 +239,7 @@ def _render_tree(
                     else current_indent + "  "
                 )
                 child_max_len = gather_data_recursive(
-                    n.children, child_indent_str, current_show_tree
+                    n.children, child_indent_str, current_show_tree, use_adaptive_time
                 )
                 level_max_name_len = max(level_max_name_len, child_max_len)
         return level_max_name_len
@@ -203,7 +247,9 @@ def _render_tree(
     # --- Body of _render_tree ---
     # Pass 1: Gather all data and find the true max name length for this call's scope.
     # The `indent` for the top-level call to `gather_data_recursive` is the `indent` passed to `_render_tree`.
-    overall_max_name_len = gather_data_recursive(nodes, indent, show_tree)
+    overall_max_name_len = gather_data_recursive(
+        nodes, indent, show_tree, adaptive_time
+    )
 
     # Determine task_width based on the true max name length.
     # This width will be used for formatting all names and for the header.
@@ -225,7 +271,10 @@ def _render_tree(
 
 
 def live_view(
-    progress_path: os.PathLike | str, refresh: float = 0.5, show_tree: bool = True
+    progress_path: os.PathLike | str,
+    refresh: float = 0.5,
+    show_tree: bool = True,
+    adaptive_time: bool = True,
 ) -> None:
     """Live terminal view for an active *simpleprogress* run.
 
@@ -238,6 +287,9 @@ def live_view(
         to quit.
     show_tree
         Whether to show tree-like indentation for child tasks.
+    adaptive_time
+        Whether to use adaptive time formatting (ms, s, M:SS, H:MM:SS) (default)
+        or fixed millisecond precision (H:MM:SS.ms).
     """
     path = Path(progress_path).expanduser()
     if not path.exists():
@@ -270,7 +322,9 @@ def live_view(
                     last_file_size = fp.tell()
                     last_mod_time = current_mod_time
                 # render
-                tree_lines, task_width = _render_tree(roots, show_tree=show_tree)
+                tree_lines, task_width = _render_tree(
+                    roots, show_tree=show_tree, adaptive_time=adaptive_time
+                )
                 header = _get_header(task_width)
                 sys.stdout.write("\033[2J\033[H")  # clear + home
                 sys.stdout.write(header + "\n" + "\n".join(tree_lines) + "\n")
@@ -297,7 +351,9 @@ def live_view(
     except Exception as e:
         print(f"\nAn error occurred: {e}", file=sys.stderr)
         # Optionally render one last time before exiting on error
-        tree_lines, task_width = _render_tree(roots, show_tree=show_tree)
+        tree_lines, task_width = _render_tree(
+            roots, show_tree=show_tree, adaptive_time=adaptive_time
+        )
         header = _get_header(task_width)
         sys.stdout.write("\033[2J\033[H")  # clear + home
         sys.stdout.write(header + "\n" + "\n".join(tree_lines) + "\n")
@@ -307,7 +363,9 @@ def live_view(
         # Attempt a final render to show the completed state
         try:
             if tasks:
-                tree_lines, task_width = _render_tree(roots, show_tree=show_tree)
+                tree_lines, task_width = _render_tree(
+                    roots, show_tree=show_tree, adaptive_time=adaptive_time
+                )
                 header = _get_header(task_width)
                 # Don't clear screen on final print, just print below last view
                 sys.stdout.write("\nFinal State:\n")
@@ -318,25 +376,34 @@ def live_view(
             pass
 
 
-# if __name__ == "__main__":
-#     if len(sys.argv) != 2:
-#         print("Usage: python simpleprogress_view.py <path_to_progress.jsonl>")
-#         sys.exit(1)
-
-#     path = sys.argv[1]
-
-#     if not path:
-#         print("Error: path is required", file=sys.stderr)
-#         sys.exit(1)
-
-#     # Check if the path seems valid before starting
-#     if not Path(path).expanduser().is_file():
-#         print(f"Error: File not found or is not a file: {path}", file=sys.stderr)
-#         sys.exit(1)
-
-#     live_view(path)
-
-
 if __name__ == "__main__":
-    # live_view("logs/run_20250512_150401.progress.jsonl")
-    live_view("../rag-pipeline-eval/logs/run_20250507_110029.progress.jsonl")
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Live progress viewer for simpleprogress files"
+    )
+    parser.add_argument("progress_file", help="Path to the progress file to view")
+    parser.add_argument(
+        "--refresh",
+        type=float,
+        default=0.5,
+        help="Refresh interval in seconds (default: 0.5)",
+    )
+    parser.add_argument(
+        "--no-tree", action="store_false", dest="show_tree", help="Disable tree view"
+    )
+    parser.add_argument(
+        "--fixed-time",
+        action="store_false",
+        dest="adaptive_time",
+        help="Use fixed time format instead of adaptive",
+    )
+
+    args = parser.parse_args()
+
+    live_view(
+        args.progress_file,
+        refresh=args.refresh,
+        show_tree=args.show_tree,
+        adaptive_time=args.adaptive_time,
+    )
