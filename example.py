@@ -1,8 +1,9 @@
-import time
-from simpleprogress import Progress
-from datetime import datetime
-from typing import List, Dict, Any
 import concurrent.futures
+import time
+from datetime import datetime
+from typing import Any, Dict, List
+
+from simpleprogress import Progress
 
 
 class Dataset:
@@ -45,7 +46,7 @@ def process_examples(pipeline: Pipeline, examples: List[str], progress) -> List[
 
 
 def run_experiment(dataset: Dataset, config: Dict[str, Any], progress) -> float:
-    with progress.child(f"experiment {dataset.name} - {config['name']}") as exp:
+    with progress.child(f"experiment_{dataset.name}_{config['name']}") as exp:
         pipeline = Pipeline(config)
 
         with exp.child("ingestion", total=len(dataset.documents)) as ingest_progress:

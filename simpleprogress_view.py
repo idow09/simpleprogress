@@ -24,13 +24,13 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import select
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import select
 
-__all__ = ["live_view", "summary"]
+__all__ = ["live_view"]
 
 
 # -----------------------------------------------------------------------------
@@ -119,6 +119,10 @@ def _update_tree(
 
 
 def _human_td(seconds: float) -> str:
+    if seconds < 0:
+        return (
+            ""  # Handle cases where duration might be slightly negative due to timing
+        )
     ms = int((seconds % 1) * 1000)
     secs = int(seconds)
     h, m, s = secs // 3600, (secs % 3600) // 60, secs % 60
@@ -129,61 +133,90 @@ def _human_td(seconds: float) -> str:
 
 def _get_header(task_width: int) -> str:
     return (
-        f"{'Task':{max(task_width, 50)}} {'Progress':25} {'Iter':>10} {'Elapsed':>8} {'Status'}\n"
-        + "-" * (max(task_width, 50) + 48)
+        f"{'Task':{task_width}} {'Progress':25} {'Iter':>10} {'Elapsed':>12} {'Avg/iter':>12} {'Status'}\n"
+        + "-" * (task_width + 25 + 10 + 12 + 12 + 7 + 5)  # Adjust total width
     )
 
 
 def _render_tree(
     nodes: List[_TaskNode], indent: str = "", show_tree: bool = True
-) -> List[str]:
-    # First pass: calculate max task name width
-    def get_max_width(nodes: List[_TaskNode], current_max: int = 0) -> int:
-        for n in nodes:
-            name_len = len(indent + n.name)
-            current_max = max(current_max, name_len)
-            if n.children:
-                current_max = max(current_max, get_max_width(n.children, current_max))
-        return current_max
+) -> Tuple[List[str], int]:
+    # List to store tuples of (name_str, bar, cnt_str, dur_str, avg_dur_str, status_char_val)
+    # for all nodes in the current call's scope, in the correct order.
+    collected_data: List[Tuple[str, str, str, str, str, str]] = []
 
-    task_width = max(get_max_width(nodes), 50)  # minimum width of 50
+    # Inner helper function to recursively gather data and the maximum name length.
+    def gather_data_recursive(
+        current_nodes: List[_TaskNode], current_indent: str, current_show_tree: bool
+    ) -> int:  # Returns max_name_len for this level and below
+        level_max_name_len = 0
+        for i, n in enumerate(current_nodes):
+            is_last = i == len(current_nodes) - 1
+            prefix = ""
+            if current_show_tree:
+                if current_indent:  # Not a root node
+                    prefix = "└─ " if is_last else "├─ "
 
-    lines: List[str] = []
-    for i, n in enumerate(nodes):
-        pct = None
-        if n.total is not None and n.total > 0:
-            pct = n.count / n.total
-        elif n.total is None and n.count:
-            pct = None  # unknown size but show counter
+            name_str = f"{current_indent}{prefix}{n.name}"
+            level_max_name_len = max(level_max_name_len, len(name_str))
 
-        bar = ""
-        if pct is not None:
-            filled = int(pct * 20)
-            bar = "[" + "#" * filled + "." * (20 - filled) + "]"
-        status = n.status
-        if status == "running":
-            status = "…"
-        dur = _human_td(n.duration() or 0.0)
-        cnt = f"{n.count}" + (f"/{n.total}" if n.total else "")
+            pct = None
+            if n.total is not None and n.total > 0:
+                pct = n.count / n.total
+            elif n.total is None and n.count > 0:
+                # Show count even if total is unknown, but no percentage bar
+                pass
 
-        # Tree characters
-        is_last = i == len(nodes) - 1
-        prefix = ""
-        if show_tree:
-            if indent:  # Not a root node
-                prefix = "└─ " if is_last else "├─ "
+            bar = ""
+            if pct is not None:
+                filled = int(pct * 20)
+                bar = "[" + "#" * filled + "." * (20 - filled) + "]"
+            elif n.count > 0:
+                # Indicate activity even without a total
+                bar = f"{n.count:>20} it"
+            else:
+                bar = " " * 21  # Keep alignment if no progress info
 
-        name = f"{indent}{prefix}{n.name}"
-        line = f"{name:{task_width}} {bar:25} {cnt:>10} {dur:>8} {status}"
-        lines.append(line.rstrip())
+            status_char_val = "…" if n.status == "running" else n.status
+            dur_val = n.duration() or 0.0
+            avg_dur_val = dur_val / n.count if n.count > 0 else -1.0
+            cnt_val = f"{n.count}" + (f"/{n.total}" if n.total is not None else "")
+            dur_str_val = _human_td(dur_val)
+            avg_dur_str_val = _human_td(avg_dur_val) if avg_dur_val >= 0 else ""
 
-        if n.children:
-            # For children, use vertical line if not last node
-            child_indent = (
-                indent + ("    " if is_last else "│   ") if show_tree else indent + "  "
+            collected_data.append(
+                (name_str, bar, cnt_val, dur_str_val, avg_dur_str_val, status_char_val)
             )
-            lines.extend(_render_tree(n.children, child_indent, show_tree))
-    return lines
+
+            if n.children:
+                child_indent_str = (
+                    current_indent + ("    " if is_last else "│   ")
+                    if current_show_tree
+                    else current_indent + "  "
+                )
+                child_max_len = gather_data_recursive(
+                    n.children, child_indent_str, current_show_tree
+                )
+                level_max_name_len = max(level_max_name_len, child_max_len)
+        return level_max_name_len
+
+    # --- Body of _render_tree ---
+    # Pass 1: Gather all data and find the true max name length for this call's scope.
+    # The `indent` for the top-level call to `gather_data_recursive` is the `indent` passed to `_render_tree`.
+    overall_max_name_len = gather_data_recursive(nodes, indent, show_tree)
+
+    # Determine task_width based on the true max name length.
+    # This width will be used for formatting all names and for the header.
+    task_width_to_use = max(overall_max_name_len, 50)  # Ensure minimum width
+
+    # Pass 2: Format all collected data using the determined task_width.
+    formatted_lines_list: List[str] = []
+    for name, bar, cnt, dur_str, avg_dur_str, status_char_item in collected_data:
+        formatted_lines_list.append(
+            f"{name:<{task_width_to_use}} {bar:<25} {cnt:>10} {dur_str:>12} {avg_dur_str:>12} {status_char_item}".rstrip()
+        )
+
+    return formatted_lines_list, task_width_to_use
 
 
 # -----------------------------------------------------------------------------
@@ -201,7 +234,7 @@ def live_view(
     progress_path
         Path to the ``*.progress.jsonl`` file being written by the job.
     refresh
-        How often to poll the file (seconds).  Press Ctrl‑C or *q* then Enter
+        How often to poll the file (seconds). Press Ctrl‑C or *q* then Enter
         to quit.
     show_tree
         Whether to show tree-like indentation for child tasks.
@@ -213,22 +246,46 @@ def live_view(
     tasks: Dict[str, _TaskNode] = {}
     roots: List[_TaskNode] = []
 
-    with path.open("r") as fp:
-        # seek to start
-        fp.seek(0, os.SEEK_SET)
-        try:
+    try:
+        with path.open("r") as fp:
+            # seek to start
+            fp.seek(0, os.SEEK_SET)
+            last_file_size = 0
+            last_mod_time = 0.0
+
             while True:
-                # read all new events
-                while line := fp.readline():
-                    evt = _parse_event(line)
-                    if evt:
-                        _update_tree(evt, tasks, roots)
+                current_mod_time = path.stat().st_mtime
+                current_file_size = path.stat().st_size
+
+                # Read only if file changed
+                if (
+                    current_mod_time > last_mod_time
+                    or current_file_size > last_file_size
+                ):
+                    fp.seek(last_file_size)
+                    while line := fp.readline():
+                        evt = _parse_event(line)
+                        if evt:
+                            _update_tree(evt, tasks, roots)
+                    last_file_size = fp.tell()
+                    last_mod_time = current_mod_time
+                else:
+                    # If no change, still check for exit condition
+                    if roots and all(r.status in {"done", "error"} for r in roots):
+                        # Final render before exit
+                        pass  # Render happens below anyway
+                    else:  # No changes and not finished
+                        # check for quit command without blocking file reads
+                        if sys.stdin in select.select([sys.stdin], [], [], 0.0)[0]:
+                            ch = sys.stdin.readline().strip().lower()
+                            if ch in {"q", "quit", "exit"}:
+                                return
+                        time.sleep(refresh)
+                        continue  # Skip rendering if no change and not finished
 
                 # render
-                tree_lines = _render_tree(roots, show_tree=show_tree)
-                header = _get_header(
-                    len(tree_lines[0].split()[0]) if tree_lines else 30
-                )
+                tree_lines, task_width = _render_tree(roots, show_tree=show_tree)
+                header = _get_header(task_width)
                 sys.stdout.write("\033[2J\033[H")  # clear + home
                 sys.stdout.write(header + "\n" + "\n".join(tree_lines) + "\n")
                 sys.stdout.flush()
@@ -237,100 +294,63 @@ def live_view(
                 if roots and all(r.status in {"done", "error"} for r in roots):
                     break
 
+                # Wait or check for input
                 t0 = time.time()
                 while time.time() - t0 < refresh:
-                    if sys.stdin in select.select([sys.stdin], [], [], refresh)[0]:
+                    if sys.stdin in select.select([sys.stdin], [], [], 0.05)[0]:
                         ch = sys.stdin.readline().strip().lower()
                         if ch in {"q", "quit", "exit"}:
                             return
                     time.sleep(0.05)
-        except KeyboardInterrupt:
-            return
+    except FileNotFoundError:
+        print(f"Error: Progress file not found at {path}", file=sys.stderr)
+        return
+    except KeyboardInterrupt:
+        print("\nExiting live view.")
+        return
+    except Exception as e:
+        print(f"\nAn error occurred: {e}", file=sys.stderr)
+        # Optionally render one last time before exiting on error
+        tree_lines, task_width = _render_tree(roots, show_tree=show_tree)
+        header = _get_header(task_width)
+        sys.stdout.write("\033[2J\033[H")  # clear + home
+        sys.stdout.write(header + "\n" + "\n".join(tree_lines) + "\n")
+        sys.stdout.flush()
+        return
+    finally:
+        # Attempt a final render to show the completed state
+        try:
+            if tasks:
+                tree_lines, task_width = _render_tree(roots, show_tree=show_tree)
+                header = _get_header(task_width)
+                # Don't clear screen on final print, just print below last view
+                sys.stdout.write("\nFinal State:\n")
+                sys.stdout.write(header + "\n" + "\n".join(tree_lines) + "\n")
+                sys.stdout.flush()
+        except Exception as final_render_e:
+            # Ignore errors during final render attempt
+            pass
 
 
-def summary(progress_path: os.PathLike | str, show_tree: bool = True) -> None:
-    """Print a post‑run summary table.
+# if __name__ == "__main__":
+#     if len(sys.argv) != 2:
+#         print("Usage: python simpleprogress_view.py <path_to_progress.jsonl>")
+#         sys.exit(1)
 
-    Parameters
-    ----------
-    progress_path
-        Path to the progress file.
-    show_tree
-        Whether to show tree-like indentation for child tasks.
+#     path = sys.argv[1]
 
-    Columns: *task*, *total iterations*, *elapsed*, *avg/iter*.
-    """
-    path = Path(progress_path).expanduser()
-    if not path.exists():
-        raise FileNotFoundError(path)
+#     if not path:
+#         print("Error: path is required", file=sys.stderr)
+#         sys.exit(1)
 
-    tasks: Dict[str, _TaskNode] = {}
-    roots: List[_TaskNode] = []
+#     # Check if the path seems valid before starting
+#     if not Path(path).expanduser().is_file():
+#         print(f"Error: File not found or is not a file: {path}", file=sys.stderr)
+#         sys.exit(1)
 
-    with path.open("r") as fp:
-        for line in fp:
-            evt = _parse_event(line)
-            if evt:
-                _update_tree(evt, tasks, roots)
-
-    # Gather rows
-    rows: List[Tuple[str, int, float, float]] = []
-
-    def collect(node: _TaskNode, prefix: str = "", is_last: bool = True):
-        if node.duration() is None:
-            return
-        dur = node.duration() or 0.0
-        avg = dur / node.count if node.count else 0.0
-
-        # Tree characters
-        tree_prefix = ""
-        if show_tree and prefix:  # Not a root node
-            tree_prefix = "└─ " if is_last else "├─ "
-
-        rows.append((prefix + tree_prefix + node.name, node.count, dur, avg))
-
-        # Process children
-        for i, child in enumerate(node.children):
-            is_child_last = i == len(node.children) - 1
-            child_prefix = (
-                prefix + ("    " if is_last else "│   ") if show_tree else prefix + "  "
-            )
-            collect(child, child_prefix, is_child_last)
-
-    for i, root in enumerate(roots):
-        collect(root, is_last=(i == len(roots) - 1))
-
-    # widths
-    col1 = max(len(r[0]) for r in rows) if rows else 4
-    hdr = f"{'Task':{col1}}  {'Iter':>8}  {'Elapsed':>8}  {'Avg/iter':>8}\n" + "-" * (
-        col1 + 32
-    )
-    print(hdr)
-    for name, cnt, dur, avg in rows:
-        if cnt == 0:
-            print(f"{name:{col1}}  {'':8}  {_human_td(dur):>8}  {'':8}")
-        else:
-            print(f"{name:{col1}}  {cnt:8d}  {_human_td(dur):>8}  {_human_td(avg):>8}")
+#     live_view(path)
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print("Usage: python simpleprogress_view.py [live|summary] <path>")
-        sys.exit(1)
-
-    command = sys.argv[1]
-    path = sys.argv[2] if len(sys.argv) > 2 else None
-
-    if not path:
-        print("Error: path is required")
-        sys.exit(1)
-
-    if command == "live":
-        live_view(path)
-    elif command == "summary":
-        summary(path)
-    else:
-        print(f"Unknown command: {command}")
-        sys.exit(1)
+    # live_view("logs/run_20250512_150401.progress.jsonl")
+    live_view("../rag-pipeline-eval/logs/run_20250507_110029.progress.jsonl")
