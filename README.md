@@ -8,3 +8,4 @@
 - [x] make the ingestion in example.py run in parallel
 - [ ] report errors in summary
 - [ ] merge summary and live_view. live_view missing only the avg. add it and remove summary.
+- [ ] make it a package
